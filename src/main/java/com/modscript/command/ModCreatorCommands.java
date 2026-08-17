@@ -10,6 +10,8 @@ import com.modscript.project.ProjectManager;
 import com.modscript.project.ProjectVersioning;
 import com.modscript.script.ServerValidator;
 import com.modscript.script.ScriptRuntime;
+import com.modscript.texture.TextureManager;
+import com.modscript.texture.TextureEditorScreen;
 import com.modscript.version.VersionAdapter;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -70,6 +72,23 @@ public class ModCreatorCommands {
                         .executes(ctx -> aiExplain(ctx.getSource(), StringArgumentType.getString(ctx, "script")))))
                 .then(Commands.literal("tutorial")
                     .executes(ctx -> aiTutorial(ctx.getSource()))))
+            .then(Commands.literal("texture")
+                .then(Commands.literal("create")
+                    .then(Commands.argument("name", StringArgumentType.word())
+                        .executes(ctx -> createTexture(ctx.getSource(), StringArgumentType.getString(ctx, "name")))))
+                .then(Commands.literal("edit")
+                    .then(Commands.argument("name", StringArgumentType.word())
+                        .executes(ctx -> editTexture(ctx.getSource(), StringArgumentType.getString(ctx, "name")))))
+                .then(Commands.literal("from")
+                    .then(Commands.argument("name", StringArgumentType.word())
+                        .then(Commands.argument("base", StringArgumentType.word())
+                            .executes(ctx -> createTextureFromBase(ctx.getSource(),
+                                StringArgumentType.getString(ctx, "name"),
+                                StringArgumentType.getString(ctx, "base"))))))
+                .then(Commands.literal("list")
+                    .executes(ctx -> listTextures(ctx.getSource())))
+                .then(Commands.literal("bases")
+                    .executes(ctx -> listBaseTextures(ctx.getSource()))))
             .then(Commands.literal("version")
                 .executes(ctx -> showVersion(ctx.getSource())))
             .executes(ctx -> {
@@ -239,6 +258,57 @@ public class ModCreatorCommands {
     private static int showVersion(CommandSourceStack source) {
         source.sendSuccess(() -> Component.literal(VersionAdapter.getVersionInfo()), false);
         source.sendSuccess(() -> Component.literal("Supported: " + VersionAdapter.getSupportedVersions()), false);
+        return 1;
+    }
+
+    private static int createTexture(CommandSourceStack source, String name) {
+        ServerPlayer player;
+        try { player = source.getPlayerOrException(); } catch (Exception e) { source.sendFailure(Component.literal("Must be run by a player")); return 0; }
+        TextureManager.createTexture(name);
+        player.sendSystemMessage(Component.literal("Texture created: " + name + ". Use /modcreator texture edit " + name + " to edit."));
+        return 1;
+    }
+
+    private static int editTexture(CommandSourceStack source, String name) {
+        ServerPlayer player;
+        try { player = source.getPlayerOrException(); } catch (Exception e) { source.sendFailure(Component.literal("Must be run by a player")); return 0; }
+        if (TextureManager.getTexture(name) == null) TextureManager.createTexture(name);
+        net.minecraft.client.Minecraft.getInstance().setScreen(new TextureEditorScreen(name));
+        return 1;
+    }
+
+    private static int createTextureFromBase(CommandSourceStack source, String name, String base) {
+        ServerPlayer player;
+        try { player = source.getPlayerOrException(); } catch (Exception e) { source.sendFailure(Component.literal("Must be run by a player")); return 0; }
+        if (!TextureManager.getBaseTextures().containsKey(base)) {
+            player.sendSystemMessage(Component.literal("§cUnknown base texture: " + base + ". Use /modcreator texture bases to see options."));
+            return 0;
+        }
+        TextureManager.createTextureFromBase(name, base);
+        net.minecraft.client.Minecraft.getInstance().setScreen(new TextureEditorScreen(name));
+        return 1;
+    }
+
+    private static int listTextures(CommandSourceStack source) {
+        var textures = TextureManager.getAllTextures();
+        if (textures.isEmpty()) { source.sendSuccess(() -> Component.literal("No textures created."), false); return 1; }
+        source.sendSuccess(() -> Component.literal("Textures:"), false);
+        for (var tex : textures) {
+            source.sendSuccess(() -> Component.literal("  - " + tex.getName() + (tex.isModified() ? " *" : "")), false);
+        }
+        return 1;
+    }
+
+    private static int listBaseTextures(CommandSourceStack source) {
+        source.sendSuccess(() -> Component.literal("Base Textures:"), false);
+        source.sendSuccess(() -> Component.literal("  Blocks:"), false);
+        TextureManager.getBaseTextures().forEach((name, path) -> {
+            if (path.contains("block/")) source.sendSuccess(() -> Component.literal("    " + name), false);
+        });
+        source.sendSuccess(() -> Component.literal("  Items:"), false);
+        TextureManager.getBaseTextures().forEach((name, path) -> {
+            if (path.contains("item/")) source.sendSuccess(() -> Component.literal("    " + name), false);
+        });
         return 1;
     }
 }
