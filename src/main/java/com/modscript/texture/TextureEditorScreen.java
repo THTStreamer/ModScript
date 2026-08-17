@@ -49,6 +49,7 @@ public class TextureEditorScreen extends Screen {
 
     @Override
     public void render(GuiGraphics gui, int mx, int my, float pt) {
+        if (this.font == null) return;
         gui.fill(0, 0, this.width, this.height, 0xFF1A1A2E);
         renderToolbar(gui, mx, my);
         renderCanvas(gui, mx, my);
