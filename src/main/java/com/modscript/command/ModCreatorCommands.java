@@ -273,7 +273,9 @@ public class ModCreatorCommands {
         ServerPlayer player;
         try { player = source.getPlayerOrException(); } catch (Exception e) { source.sendFailure(Component.literal("Must be run by a player")); return 0; }
         if (TextureManager.getTexture(name) == null) TextureManager.createTexture(name);
-        net.minecraft.client.Minecraft.getInstance().setScreen(new TextureEditorScreen(name));
+        String texName = name;
+        net.minecraft.client.Minecraft.getInstance().tell(() ->
+            net.minecraft.client.Minecraft.getInstance().setScreen(new TextureEditorScreen(texName)));
         return 1;
     }
 
@@ -285,7 +287,9 @@ public class ModCreatorCommands {
             return 0;
         }
         TextureManager.createTextureFromBase(name, base);
-        net.minecraft.client.Minecraft.getInstance().setScreen(new TextureEditorScreen(name));
+        String texName = name;
+        net.minecraft.client.Minecraft.getInstance().tell(() ->
+            net.minecraft.client.Minecraft.getInstance().setScreen(new TextureEditorScreen(texName)));
         return 1;
     }
 
