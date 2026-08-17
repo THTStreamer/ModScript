@@ -306,6 +306,67 @@ Output includes:
 
 ---
 
+## Texture Editor
+
+Create custom 16x16 pixel art textures for your items and blocks.
+
+### Commands
+```
+/modcreator texture create <name>           Create blank 16x16 texture
+/modcreator texture edit <name>            Open texture editor
+/modcreator texture from <name> <base>     Create from base texture + edit
+/modcreator texture list                   List all created textures
+/modcreator texture bases                  Show all base textures
+```
+
+### Creating a Texture
+```bash
+# Create a blank texture
+/modcreator texture create ruby_sword
+
+# Create from a base texture (copies reference)
+/modcreator texture from ruby_sword sword
+
+# Open the editor
+/modcreator texture edit ruby_sword
+```
+
+### Editor Tools
+
+| Tool | Description |
+|------|-------------|
+| **Pencil** | Draw pixels with current color |
+| **Eraser** | Remove pixels (make transparent) |
+| **Fill** | Flood fill an area with color |
+| **Picker** | Pick color from canvas |
+| **Line** | Draw a straight line |
+| **Rect** | Draw a rectangle outline |
+| **Clear** | Clear entire canvas |
+
+### Editor Controls
+- **Left click** — Use current tool
+- **Click palette** — Select color
+- **Grid toggle** — Show/hide pixel grid
+- **Undo/Redo** — Up to 50 levels
+- **Save** — Write PNG to world folder
+
+### Base Textures
+
+**Blocks:** stone, dirt, grass, cobblestone, planks, bedrock, sand, gravel, gold_ore, iron_ore, coal_ore, diamond_ore, crafting_table, furnace, chest, log, leaves, glass, diamond_block, emerald_block, iron_block, gold_block, redstone_block, lapis_block, netherrack, soul_sand, glowstone, obsidian, end_stone
+
+**Items:** sword, pickaxe, axe, shovel, hoe, bow, crossbow, shield, helmet, chestplate, leggings, boots, apple, bread, beef, porkchop, diamond, emerald, gold_ingot, iron_ingot, stick, diamond_sword, diamond_pickaxe, netherite_sword, ender_pearl, blaze_rod, ender_eye, experience_bottle
+
+### Palette Colors
+30+ colors organized by hue: Black, Dark Gray, Gray, Light Gray, White, Red, Dark Red, Orange, Yellow, Lime, Green, Dark Green, Cyan, Light Blue, Blue, Dark Blue, Purple, Magenta, Pink, Brown, Skin, Sand, Grass, Leaf, Wood, Stone, Water, Lava, Fire, Glow
+
+### Texture Storage
+Textures are saved as PNG files in:
+```
+<world>/modscript/textures/<name>.png
+```
+
+---
+
 ## Example Projects
 
 ### Simple Sword
