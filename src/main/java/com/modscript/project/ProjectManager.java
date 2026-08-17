@@ -67,6 +67,22 @@ public class ProjectManager {
         return projects;
     }
 
+    public static String loadScript(String projectName) {
+        try {
+            Path scriptFile = projectsDir.resolve(projectName).resolve("scripts").resolve("main.ms");
+            if (Files.exists(scriptFile)) return Files.readString(scriptFile);
+        } catch (Exception e) {}
+        return null;
+    }
+
+    public static void saveScript(String projectName, String script) {
+        try {
+            Path scriptsDir = projectsDir.resolve(projectName).resolve("scripts");
+            Files.createDirectories(scriptsDir);
+            Files.writeString(scriptsDir.resolve("main.ms"), script);
+        } catch (Exception e) {}
+    }
+
     public static record Project(
         String name,
         String version,

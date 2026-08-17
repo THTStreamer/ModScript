@@ -1,5 +1,6 @@
 package com.modscript.gui;
 
+import com.modscript.project.ProjectManager;
 import com.modscript.script.ModScriptLexer;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
@@ -10,7 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class CodeEditorScreen extends Screen {
-    private final String projectName;
+    private String projectName;
     private final List<String> lines = new ArrayList<>();
     private int cursorLine = 0;
     private int cursorColumn = 0;
@@ -34,299 +35,253 @@ public class CodeEditorScreen extends Screen {
     private List<int[]> searchResults = new ArrayList<>();
     private int currentSearchResult = 0;
 
+    private List<String> projectList = new ArrayList<>();
+    private boolean showProjectList = false;
+
     // Layout
     private static final int TITLE_BAR_HEIGHT = 20;
     private static final int TOOLBAR_HEIGHT = 24;
-    private static final int HEADER_HEIGHT = TITLE_BAR_HEIGHT + TOOLBAR_HEIGHT; // 44
+    private static final int HEADER_HEIGHT = TITLE_BAR_HEIGHT + TOOLBAR_HEIGHT;
     private static final int STATUS_BAR_HEIGHT = 20;
     private static final int LINE_HEIGHT = 12;
     private static final int LINE_NUM_WIDTH = 35;
     private static final int EDITOR_LEFT = LINE_NUM_WIDTH + 8;
-    private static final int AUTOCOMPLETE_WIDTH = 200;
-    private static final int AUTOCOMPLETE_ITEM_HEIGHT = 13;
 
-    // Button layout
-    private static final int BTN_Y_OFFSET = 3;
-    private static final int BTN_HEIGHT = 18;
-    private static final int BTN_SAVE_X = 8;
-    private static final int BTN_SAVE_W = 52;
-    private static final int BTN_RUN_X = 66;
-    private static final int BTN_RUN_W = 52;
+    private static final int BTN_Y = TITLE_BAR_HEIGHT + 3;
+    private static final int BTN_H = 18;
 
     public CodeEditorScreen(String projectName) {
-        super(Component.literal("ModScript Editor - " + projectName));
+        super(Component.literal("ModScript Editor"));
         this.projectName = projectName;
-        this.lines.add("create item \"Dragon Sword\"");
-        this.lines.add("damage: 25");
-        this.lines.add("durability: 1500");
-        this.lines.add("");
-        this.lines.add("when player attacks zombie:");
-        this.lines.add("    set zombie on fire for 5 seconds");
-        this.lines.add("    deal 20 damage");
+        loadProjectScript();
+    }
+
+    private void loadProjectScript() {
+        lines.clear();
+        try {
+            String script = ProjectManager.loadScript(projectName);
+            if (script != null && !script.isEmpty()) {
+                for (String line : script.split("\n")) lines.add(line);
+            }
+        } catch (Exception e) {}
+        if (lines.isEmpty()) {
+            lines.add("create item \"Dragon Sword\"");
+            lines.add("damage: 25");
+            lines.add("durability: 1500");
+        }
+        cursorLine = 0;
+        cursorColumn = 0;
+        scrollOffset = 0;
+        validateScript();
+    }
+
+    private void refreshProjectList() {
+        projectList.clear();
+        try { projectList.addAll(ProjectManager.listProjects()); } catch (Exception e) {}
     }
 
     @Override
     protected void init() {
         maxVisibleLines = (this.height - HEADER_HEIGHT - STATUS_BAR_HEIGHT - 4) / LINE_HEIGHT;
         if (maxVisibleLines < 1) maxVisibleLines = 1;
+        refreshProjectList();
         validateScript();
     }
 
     @Override
-    public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        this.renderBackground(guiGraphics, mouseX, mouseY, partialTick);
+    public void render(GuiGraphics gui, int mx, int my, float pt) {
+        if (this.font == null) return;
+        gui.fill(0, 0, this.width, this.height, 0xFF1A1A2E);
 
         int editorTop = HEADER_HEIGHT;
         int editorBottom = this.height - STATUS_BAR_HEIGHT;
 
-        // === TITLE BAR ===
-        guiGraphics.fill(0, 0, this.width, TITLE_BAR_HEIGHT, 0xFF1A1A2E);
-        guiGraphics.drawCenteredString(this.font, "ModScript Editor - " + projectName, this.width / 2, 6, 0xFFCCCCCC);
+        // Title bar
+        gui.fill(0, 0, this.width, TITLE_BAR_HEIGHT, 0xFF1A1A2E);
+        gui.drawCenteredString(this.font, "ModScript - " + projectName, this.width / 2, 6, 0xFFCCCCCC);
 
-        // === TOOLBAR ===
-        guiGraphics.fill(0, TITLE_BAR_HEIGHT, this.width, HEADER_HEIGHT, 0xFF252535);
+        // Toolbar
+        gui.fill(0, TITLE_BAR_HEIGHT, this.width, HEADER_HEIGHT, 0xFF252535);
+
+        int x = 8;
+
+        // Projects button
+        int projW = font.width("Projects") + 12;
+        boolean projHover = mx >= x && mx <= x + projW && my >= BTN_Y && my <= BTN_Y + BTN_H;
+        gui.fill(x, BTN_Y, x + projW, BTN_Y + BTN_H, showProjectList ? 0xFF4A6FA5 : (projHover ? 0xFF3A3A4A : 0xFF2A2A3A));
+        gui.drawString(font, "Projects", x + 6, BTN_Y + 5, 0xFFCCCCCC);
+        x += projW + 6;
+
+        // New button
+        int newW = font.width("New") + 10;
+        boolean newHover = mx >= x && mx <= x + newW && my >= BTN_Y && my <= BTN_Y + BTN_H;
+        gui.fill(x, BTN_Y, x + newW, BTN_Y + BTN_H, newHover ? 0xFF3A3A4A : 0xFF2A2A3A);
+        gui.drawString(font, "New", x + 5, BTN_Y + 5, 0xFF88CCFF);
+        x += newW + 6;
+
+        // Separator
+        gui.fill(x, BTN_Y, x + 1, BTN_Y + BTN_H, 0xFF444444);
+        x += 8;
 
         // Save button
-        int btnY = TITLE_BAR_HEIGHT + BTN_Y_OFFSET;
-        boolean saveHover = mouseX >= BTN_SAVE_X && mouseX <= BTN_SAVE_X + BTN_SAVE_W
-                && mouseY >= btnY && mouseY <= btnY + BTN_HEIGHT;
-        int saveBg = saveHover ? 0xFF2E6B2E : 0xFF1E4E1E;
-        int saveBorder = saveHover ? 0xFF44AA44 : 0xFF338833;
-        guiGraphics.fill(BTN_SAVE_X, btnY, BTN_SAVE_X + BTN_SAVE_W, btnY + BTN_HEIGHT, saveBg);
-        guiGraphics.renderOutline(BTN_SAVE_X, btnY, BTN_SAVE_W, BTN_HEIGHT, saveBorder);
-        guiGraphics.drawCenteredString(this.font, "Save", BTN_SAVE_X + BTN_SAVE_W / 2, btnY + 5, 0xFF66DD66);
+        int saveW = font.width("Save") + 12;
+        boolean saveHover = mx >= x && mx <= x + saveW && my >= BTN_Y && my <= BTN_Y + BTN_H;
+        gui.fill(x, BTN_Y, x + saveW, BTN_Y + BTN_H, saveHover ? 0xFF2E6B2E : 0xFF1E4E1E);
+        gui.drawString(font, "Save", x + 6, BTN_Y + 5, 0xFF66DD66);
+        x += saveW + 4;
 
         // Run button
-        boolean runHover = mouseX >= BTN_RUN_X && mouseX <= BTN_RUN_X + BTN_RUN_W
-                && mouseY >= btnY && mouseY <= btnY + BTN_HEIGHT;
-        int runBg = runHover ? 0xFF6B2E2E : 0xFF4E1E1E;
-        int runBorder = runHover ? 0xFFAA4444 : 0xFF883333;
-        guiGraphics.fill(BTN_RUN_X, btnY, BTN_RUN_X + BTN_RUN_W, btnY + BTN_HEIGHT, runBg);
-        guiGraphics.renderOutline(BTN_RUN_X, btnY, BTN_RUN_W, BTN_HEIGHT, runBorder);
-        guiGraphics.drawCenteredString(this.font, "Run", BTN_RUN_X + BTN_RUN_W / 2, btnY + 5, 0xFFDD6666);
+        int runW = font.width("Run") + 12;
+        boolean runHover = mx >= x && mx <= x + runW && my >= BTN_Y && my <= BTN_Y + BTN_H;
+        gui.fill(x, BTN_Y, x + runW, BTN_Y + BTN_H, runHover ? 0xFF6B2E2E : 0xFF4E1E1E);
+        gui.drawString(font, "Run", x + 6, BTN_Y + 5, 0xFFDD6666);
+        x += runW + 12;
 
-        // Project label
-        guiGraphics.drawString(this.font, "  " + projectName, BTN_RUN_X + BTN_RUN_W + 10, btnY + 5, 0xFF888888);
+        // Undo/Redo
+        int undoW = font.width("Undo") + 10;
+        gui.fill(x, BTN_Y, x + undoW, BTN_Y + BTN_H, mx >= x && mx <= x + undoW && my >= BTN_Y && my <= BTN_Y + BTN_H ? 0xFF3A3A4A : 0xFF2A2A3A);
+        gui.drawString(font, "Undo", x + 5, BTN_Y + 5, 0xFFDDDDDD);
+        x += undoW + 4;
 
-        // Separator under toolbar
-        guiGraphics.fill(0, HEADER_HEIGHT - 1, this.width, HEADER_HEIGHT, 0xFF444444);
+        int redoW = font.width("Redo") + 10;
+        gui.fill(x, BTN_Y, x + redoW, BTN_Y + BTN_H, mx >= x && mx <= x + redoW && my >= BTN_Y && my <= BTN_Y + BTN_H ? 0xFF3A3A4A : 0xFF2A2A3A);
+        gui.drawString(font, "Redo", x + 5, BTN_Y + 5, 0xFFDDDDDD);
+        x += redoW + 12;
 
-        // === EDITOR BACKGROUND ===
-        guiGraphics.fill(0, editorTop, this.width, editorBottom, 0xFF1E1E1E);
+        // Close
+        int closeW = font.width("Close") + 10;
+        gui.fill(x, BTN_Y, x + closeW, BTN_Y + BTN_H, mx >= x && mx <= x + closeW && my >= BTN_Y && my <= BTN_Y + BTN_H ? 0xFF6B2E2E : 0xFF4E1E1E);
+        gui.drawString(font, "Close", x + 5, BTN_Y + 5, 0xFFDD6666);
 
-        // === LINE NUMBER COLUMN BACKGROUND ===
-        guiGraphics.fill(0, editorTop, LINE_NUM_WIDTH, editorBottom, 0xFF1A1A1A);
-        guiGraphics.fill(LINE_NUM_WIDTH, editorTop, LINE_NUM_WIDTH + 1, editorBottom, 0xFF333333);
+        // Separator
+        gui.fill(0, HEADER_HEIGHT - 1, this.width, HEADER_HEIGHT, 0xFF444444);
 
-        // === CURRENT LINE HIGHLIGHT ===
+        // Editor background
+        gui.fill(0, editorTop, this.width, editorBottom, 0xFF1E1E1E);
+        gui.fill(0, editorTop, LINE_NUM_WIDTH, editorBottom, 0xFF1A1A1A);
+        gui.fill(LINE_NUM_WIDTH, editorTop, LINE_NUM_WIDTH + 1, editorBottom, 0xFF333333);
+
+        // Current line highlight
         if (cursorLine >= scrollOffset && cursorLine < scrollOffset + maxVisibleLines) {
             int hlY = editorTop + (cursorLine - scrollOffset) * LINE_HEIGHT;
-            guiGraphics.fill(LINE_NUM_WIDTH + 1, hlY, this.width, hlY + LINE_HEIGHT, 0xFF2A2D2E);
+            gui.fill(LINE_NUM_WIDTH + 1, hlY, this.width, hlY + LINE_HEIGHT, 0xFF2A2D2E);
         }
 
-        // === LINE NUMBERS ===
+        // Line numbers
         for (int i = 0; i < maxVisibleLines && i + scrollOffset < lines.size(); i++) {
             int y = editorTop + i * LINE_HEIGHT + 2;
-            int lineNum = i + scrollOffset + 1;
-            String numStr = String.valueOf(lineNum);
-            int numWidth = font.width(numStr);
+            int num = i + scrollOffset + 1;
+            String numStr = String.valueOf(num);
+            int numW = font.width(numStr);
             int numColor = (i + scrollOffset == cursorLine) ? 0xFFBBBBBB : 0xFF555555;
-            guiGraphics.drawString(this.font, numStr, LINE_NUM_WIDTH - numWidth - 6, y, numColor);
+            gui.drawString(this.font, numStr, LINE_NUM_WIDTH - numW - 6, y, numColor);
         }
 
-        // === CODE ===
+        // Code
         for (int i = 0; i < maxVisibleLines && i + scrollOffset < lines.size(); i++) {
             int y = editorTop + i * LINE_HEIGHT + 2;
             String line = lines.get(i + scrollOffset);
-            renderHighlightedLine(guiGraphics, line, EDITOR_LEFT, y);
+            renderHighlightedLine(gui, line, EDITOR_LEFT, y);
         }
 
-        // === SEARCH RESULTS HIGHLIGHTING ===
-        if (showSearch && !searchResults.isEmpty()) {
-            for (int[] result : searchResults) {
-                int lineIdx = result[0];
-                int colIdx = result[1];
-                if (lineIdx >= scrollOffset && lineIdx < scrollOffset + maxVisibleLines) {
-                    int y = editorTop + (lineIdx - scrollOffset) * LINE_HEIGHT;
-                    String line = lines.get(lineIdx);
-                    int x = EDITOR_LEFT + font.width(line.substring(0, colIdx));
-                    int w = font.width(searchText);
-                    guiGraphics.fill(x, y, x + w, y + LINE_HEIGHT, 0x66FFFF00);
-                }
-            }
-        }
-
-        // === CURSOR ===
+        // Cursor
         long now = System.currentTimeMillis();
-        if (now - lastCursorBlink > 530) {
-            cursorVisible = !cursorVisible;
-            lastCursorBlink = now;
-        }
-
+        if (now - lastCursorBlink > 530) { cursorVisible = !cursorVisible; lastCursorBlink = now; }
         if (cursorVisible && cursorLine >= scrollOffset && cursorLine < scrollOffset + maxVisibleLines) {
             int cursorY = editorTop + (cursorLine - scrollOffset) * LINE_HEIGHT + 2;
             String line = lines.get(cursorLine);
             int clampedCol = Math.min(cursorColumn, line.length());
             int cursorX = EDITOR_LEFT + font.width(line.substring(0, clampedCol));
-            guiGraphics.fill(cursorX, cursorY, cursorX + 1, cursorY + LINE_HEIGHT - 2, 0xFFCCCCCC);
+            gui.fill(cursorX, cursorY, cursorX + 1, cursorY + LINE_HEIGHT - 2, 0xFFCCCCCC);
         }
 
-        // === AUTOCOMPLETE POPUP ===
-        if (showAutocomplete && !autocompleteSuggestions.isEmpty()) {
-            renderAutocomplete(guiGraphics);
-        }
-
-        // === ERROR PANEL ===
+        // Error panel
         if (!errors.isEmpty()) {
-            renderErrors(guiGraphics, editorTop, editorBottom);
+            int panelH = Math.min(errors.size(), 4) * 13 + 18;
+            int panelY = editorBottom - panelH - 4;
+            gui.fill(EDITOR_LEFT, panelY, this.width, editorBottom - 4, 0xDD3D1F1F);
+            gui.drawString(this.font, "Errors:", EDITOR_LEFT + 4, panelY + 3, 0xFFFF5555);
+            for (int i = 0; i < Math.min(errors.size(), 4); i++) {
+                gui.drawString(this.font, errors.get(i), EDITOR_LEFT + 4, panelY + 16 + i * 13, 0xFFFF9999);
+            }
         }
 
-        // === SEARCH BAR ===
-        if (showSearch) {
-            renderSearchBar(guiGraphics);
+        // Project list dropdown
+        if (showProjectList) {
+            renderProjectList(gui, mx, my);
         }
 
-        // === STATUS BAR ===
-        guiGraphics.fill(0, editorBottom, this.width, this.height, 0xFF252526);
-        guiGraphics.fill(0, editorBottom, this.width, editorBottom + 1, 0xFF444444);
+        // Status bar
+        gui.fill(0, editorBottom, this.width, this.height, 0xFF252526);
+        String left = "Ln " + (cursorLine + 1) + "  Col " + (cursorColumn + 1) + "  |  " + lines.size() + " lines";
+        if (!errors.isEmpty()) left += "  |  " + errors.size() + " error(s)";
+        gui.drawString(this.font, left, 8, editorBottom + 6, errors.isEmpty() ? 0xFF888888 : 0xFFFF5555);
 
-        String leftStatus = "Ln " + (cursorLine + 1) + "  Col " + (cursorColumn + 1) + "  |  " + lines.size() + " lines";
-        if (!errors.isEmpty()) leftStatus += "  |  " + errors.size() + " error(s)";
-        guiGraphics.drawString(this.font, leftStatus, 8, editorBottom + 6, errors.isEmpty() ? 0xFF888888 : 0xFFFF5555);
-
-        String rightStatus = "Ctrl+S Save  |  F5 Run  |  Ctrl+F Find";
-        guiGraphics.drawString(this.font, rightStatus, this.width - font.width(rightStatus) - 8, editorBottom + 6, 0xFF666666);
-
-        // === STATUS MESSAGE TOAST ===
+        // Status message
         if (!statusMessage.isEmpty() && now - statusMessageTime < 3000) {
-            int msgW = font.width(statusMessage) + 20;
-            int msgX = (this.width - msgW) / 2;
-            int msgY = editorBottom - 22;
-            guiGraphics.fill(msgX - 5, msgY - 2, msgX + msgW + 5, msgY + 14, 0xCC1A3A1A);
-            guiGraphics.renderOutline(msgX - 5, msgY - 2, msgW + 10, 16, 0xFF338833);
-            guiGraphics.drawString(this.font, statusMessage, msgX, msgY + 1, 0xFF55FF55);
+            int w = font.width(statusMessage) + 16;
+            int sx = (this.width - w) / 2;
+            gui.fill(sx, editorBottom - 22, sx + w, editorBottom - 6, 0xCC1A3A1A);
+            gui.drawString(this.font, statusMessage, sx + 8, editorBottom - 18, 0xFF55FF55);
         }
     }
 
-    private void renderHighlightedLine(GuiGraphics guiGraphics, String line, int x, int y) {
-        int offsetX = 0;
-        String trimmed = line.trim();
+    private void renderProjectList(GuiGraphics gui, int mx, int my) {
+        int listX = 8;
+        int listY = HEADER_HEIGHT;
+        int itemH = 14;
+        int listW = 150;
+        int listH = (projectList.size() + 1) * itemH + 4;
 
+        gui.fill(listX, listY, listX + listW, listY + listH, 0xFF252535);
+        gui.renderOutline(listX, listY, listW, listH, 0xFF555555);
+
+        for (int i = 0; i < projectList.size(); i++) {
+            int iy = listY + 2 + i * itemH;
+            boolean hover = mx >= listX && mx <= listX + listW && my >= iy && my <= iy + itemH;
+            boolean active = projectList.get(i).equals(projectName);
+            if (hover) gui.fill(listX + 1, iy, listX + listW - 1, iy + itemH, 0xFF3A3A5A);
+            if (active) gui.fill(listX + 1, iy, listX + 3, iy + itemH, 0xFF5599FF);
+            gui.drawString(this.font, projectList.get(i), listX + 8, iy + 3, active ? 0xFF5599FF : 0xFFCCCCCC);
+        }
+    }
+
+    private void renderHighlightedLine(GuiGraphics gui, String line, int x, int y) {
+        String trimmed = line.trim();
         if (trimmed.startsWith("create")) {
             int createEnd = line.indexOf(' ') + 1;
-            guiGraphics.drawString(this.font, line.substring(0, createEnd), x + offsetX, y, 0xFF569CD6);
-            offsetX += font.width(line.substring(0, createEnd));
-
-            String remaining = line.substring(createEnd);
-            String trimmedRemaining = remaining.trim();
-            if (trimmedRemaining.startsWith("item") || trimmedRemaining.startsWith("block")) {
-                int spaces = remaining.indexOf(trimmedRemaining);
-                if (spaces > 0) {
-                    guiGraphics.drawString(this.font, remaining.substring(0, spaces), x + offsetX, y, 0xFFD4D4D4);
-                    offsetX += font.width(remaining.substring(0, spaces));
-                }
-                int typeEnd = trimmedRemaining.indexOf(' ') + 1;
-                if (typeEnd <= 0) typeEnd = trimmedRemaining.length();
-                guiGraphics.drawString(this.font, trimmedRemaining.substring(0, typeEnd), x + offsetX, y, 0xFF4EC9B0);
-                offsetX += font.width(trimmedRemaining.substring(0, typeEnd));
-                remaining = trimmedRemaining.substring(typeEnd);
+            gui.drawString(this.font, line.substring(0, createEnd), x, y, 0xFF569CD6);
+            int off = font.width(line.substring(0, createEnd));
+            String rest = line.substring(createEnd);
+            String tRest = rest.trim();
+            if (tRest.startsWith("item") || tRest.startsWith("block") || tRest.startsWith("mob")) {
+                int sp = rest.indexOf(tRest);
+                if (sp > 0) { gui.drawString(this.font, rest.substring(0, sp), x + off, y, 0xFFD4D4D4); off += font.width(rest.substring(0, sp)); }
+                int typeEnd = tRest.indexOf(' ') + 1;
+                if (typeEnd <= 0) typeEnd = tRest.length();
+                gui.drawString(this.font, tRest.substring(0, typeEnd), x + off, y, 0xFF4EC9B0);
+                off += font.width(tRest.substring(0, typeEnd));
+                rest = tRest.substring(typeEnd);
+            }
+            int q1 = rest.indexOf('"');
+            int q2 = rest.lastIndexOf('"');
+            if (q1 >= 0 && q2 > q1) {
+                gui.drawString(this.font, rest.substring(0, q1 + 1), x + off, y, 0xFFD4D4D4);
+                off += font.width(rest.substring(0, q1 + 1));
+                gui.drawString(this.font, rest.substring(q1 + 1, q2), x + off, y, 0xFFCE9178);
+                off += font.width(rest.substring(q1 + 1, q2));
+                gui.drawString(this.font, rest.substring(q2), x + off, y, 0xFFD4D4D4);
             } else {
-                remaining = trimmedRemaining;
+                gui.drawString(this.font, rest, x + off, y, 0xFFD4D4D4);
             }
-
-            if (remaining.contains("\"")) {
-                int firstQuote = remaining.indexOf('"');
-                int lastQuote = remaining.lastIndexOf('"');
-                if (firstQuote != lastQuote) {
-                    guiGraphics.drawString(this.font, remaining.substring(0, firstQuote + 1), x + offsetX, y, 0xFFD4D4D4);
-                    offsetX += font.width(remaining.substring(0, firstQuote + 1));
-                    guiGraphics.drawString(this.font, remaining.substring(firstQuote + 1, lastQuote), x + offsetX, y, 0xFFCE9178);
-                    offsetX += font.width(remaining.substring(firstQuote + 1, lastQuote));
-                    guiGraphics.drawString(this.font, remaining.substring(lastQuote), x + offsetX, y, 0xFFD4D4D4);
-                    return;
-                }
-            }
-            guiGraphics.drawString(this.font, remaining, x + offsetX, y, 0xFFD4D4D4);
-
         } else if (trimmed.startsWith("when")) {
-            guiGraphics.drawString(this.font, line, x, y, 0xFFC586C0);
-
+            gui.drawString(this.font, line, x, y, 0xFFC586C0);
         } else if (trimmed.contains(":")) {
-            int colonPos = line.indexOf(':');
-            String key = line.substring(0, colonPos + 1);
-            String val = line.substring(colonPos + 1);
-            guiGraphics.drawString(this.font, key, x, y, 0xFF9CDCFE);
-            guiGraphics.drawString(this.font, val, x + font.width(key), y, 0xFFB5CEA8);
-
-        } else if (line.contains("\"")) {
-            int firstQuote = line.indexOf('"');
-            int lastQuote = line.lastIndexOf('"');
-            if (firstQuote != lastQuote) {
-                guiGraphics.drawString(this.font, line.substring(0, firstQuote + 1), x + offsetX, y, 0xFFD4D4D4);
-                offsetX += font.width(line.substring(0, firstQuote + 1));
-                guiGraphics.drawString(this.font, line.substring(firstQuote + 1, lastQuote), x + offsetX, y, 0xFFCE9178);
-                offsetX += font.width(line.substring(firstQuote + 1, lastQuote));
-                guiGraphics.drawString(this.font, line.substring(lastQuote), x + offsetX, y, 0xFFD4D4D4);
-                return;
-            }
-            guiGraphics.drawString(this.font, line, x, y, 0xFFD4D4D4);
-
+            int cp = line.indexOf(':');
+            gui.drawString(this.font, line.substring(0, cp + 1), x, y, 0xFF9CDCFE);
+            gui.drawString(this.font, line.substring(cp + 1), x + font.width(line.substring(0, cp + 1)), y, 0xFFB5CEA8);
         } else {
-            guiGraphics.drawString(this.font, line, x, y, 0xFFD4D4D4);
-        }
-    }
-
-    private void renderAutocomplete(GuiGraphics guiGraphics) {
-        String currentLine = lines.get(cursorLine);
-        int clampedCol = Math.min(cursorColumn, currentLine.length());
-        int x = EDITOR_LEFT + font.width(currentLine.substring(0, clampedCol));
-        int y = HEADER_HEIGHT + (cursorLine - scrollOffset) * LINE_HEIGHT + LINE_HEIGHT + 2;
-
-        int popupHeight = autocompleteSuggestions.size() * AUTOCOMPLETE_ITEM_HEIGHT + 4;
-        if (y + popupHeight > this.height - STATUS_BAR_HEIGHT - 10) {
-            y = HEADER_HEIGHT + (cursorLine - scrollOffset) * LINE_HEIGHT - popupHeight - 2;
-        }
-
-        guiGraphics.fill(x, y, x + AUTOCOMPLETE_WIDTH, y + popupHeight, 0xFF252526);
-        guiGraphics.renderOutline(x, y, AUTOCOMPLETE_WIDTH, popupHeight, 0xFF555555);
-
-        for (int i = 0; i < autocompleteSuggestions.size(); i++) {
-            int itemY = y + 2 + i * AUTOCOMPLETE_ITEM_HEIGHT;
-            if (i == selectedSuggestion) {
-                guiGraphics.fill(x + 1, itemY, x + AUTOCOMPLETE_WIDTH - 1, itemY + AUTOCOMPLETE_ITEM_HEIGHT - 1, 0xFF264F78);
-            }
-            guiGraphics.drawString(this.font, autocompleteSuggestions.get(i), x + 6, itemY + 3, 0xFFD4D4D4);
-        }
-    }
-
-    private void renderErrors(GuiGraphics guiGraphics, int editorTop, int editorBottom) {
-        int panelHeight = Math.min(errors.size(), 4) * 13 + 18;
-        int panelY = editorBottom - panelHeight - 4;
-
-        guiGraphics.fill(EDITOR_LEFT, panelY, this.width, editorBottom - 4, 0xDD3D1F1F);
-        guiGraphics.renderOutline(EDITOR_LEFT, panelY, this.width - EDITOR_LEFT, panelHeight, 0xFFAA3333);
-        guiGraphics.drawString(this.font, "Errors:", EDITOR_LEFT + 4, panelY + 3, 0xFFFF5555);
-
-        for (int i = 0; i < Math.min(errors.size(), 4); i++) {
-            guiGraphics.drawString(this.font, errors.get(i), EDITOR_LEFT + 4, panelY + 16 + i * 13, 0xFFFF9999);
-        }
-    }
-
-    private void renderSearchBar(GuiGraphics guiGraphics) {
-        int barY = HEADER_HEIGHT;
-        guiGraphics.fill(0, barY, this.width, barY + 20, 0xFF2A2A3A);
-        guiGraphics.fill(0, barY + 19, this.width, barY + 20, 0xFF444444);
-
-        guiGraphics.drawString(this.font, "Find:", 8, barY + 6, 0xFF888888);
-        guiGraphics.fill(48, barY + 3, 220, barY + 16, 0xFF1A1A1A);
-        guiGraphics.renderOutline(48, barY + 3, 172, 13, 0xFF555555);
-        String display = searchText + (System.currentTimeMillis() % 1000 < 500 ? "|" : "");
-        guiGraphics.drawString(this.font, display, 52, barY + 5, 0xFFD4D4D4);
-
-        if (!searchResults.isEmpty()) {
-            guiGraphics.drawString(this.font,
-                (currentSearchResult + 1) + "/" + searchResults.size(),
-                230, barY + 6, 0xFF888888);
+            gui.drawString(this.font, line, x, y, 0xFFD4D4D4);
         }
     }
 
@@ -335,69 +290,130 @@ public class CodeEditorScreen extends Screen {
         try {
             ModScriptLexer lexer = new ModScriptLexer(String.join("\n", lines));
             lexer.tokenize();
-        } catch (Exception e) {
-            errors.add(e.getMessage());
-        }
+        } catch (Exception e) { errors.add(e.getMessage()); }
+    }
 
-        for (int i = 0; i < lines.size(); i++) {
-            String line = lines.get(i).trim();
-            if (line.startsWith("create") && !line.contains("\"")) {
-                errors.add("Line " + (i + 1) + ": Missing name in quotes");
+    @Override
+    public boolean mouseClicked(double mx, double my, int button) {
+        int x = 8;
+
+        // Projects button
+        int projW = font.width("Projects") + 12;
+        if (mx >= x && mx <= x + projW && my >= BTN_Y && my <= BTN_Y + BTN_H) {
+            showProjectList = !showProjectList;
+            if (showProjectList) refreshProjectList();
+            return true;
+        }
+        x += projW + 6;
+
+        // New button
+        int newW = font.width("New") + 10;
+        if (mx >= x && mx <= x + newW && my >= BTN_Y && my <= BTN_Y + BTN_H) {
+            net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+            if (mc.player != null) mc.player.connection.sendCommand("modcreator create NewProject");
+            showStatus("Created NewProject");
+            refreshProjectList();
+            return true;
+        }
+        x += newW + 6 + 1 + 8;
+
+        // Save
+        int saveW = font.width("Save") + 12;
+        if (mx >= x && mx <= x + saveW && my >= BTN_Y && my <= BTN_Y + BTN_H) { saveScript(); return true; }
+        x += saveW + 4;
+
+        // Run
+        int runW = font.width("Run") + 12;
+        if (mx >= x && mx <= x + runW && my >= BTN_Y && my <= BTN_Y + BTN_H) { runScript(); return true; }
+        x += runW + 12;
+
+        // Undo
+        int undoW = font.width("Undo") + 10;
+        if (mx >= x && mx <= x + undoW && my >= BTN_Y && my <= BTN_Y + BTN_H) { undo(); return true; }
+        x += undoW + 4;
+
+        // Redo
+        int redoW = font.width("Redo") + 10;
+        if (mx >= x && mx <= x + redoW && my >= BTN_Y && my <= BTN_Y + BTN_H) { redo(); return true; }
+        x += redoW + 12;
+
+        // Close
+        int closeW = font.width("Close") + 10;
+        if (mx >= x && mx <= x + closeW && my >= BTN_Y && my <= BTN_Y + BTN_H) { onClose(); return true; }
+
+        // Project list click
+        if (showProjectList) {
+            int listX = 8;
+            int listY = HEADER_HEIGHT;
+            int itemH = 14;
+            int listW = 150;
+            for (int i = 0; i < projectList.size(); i++) {
+                int iy = listY + 2 + i * itemH;
+                if (mx >= listX && mx <= listX + listW && my >= iy && my <= iy + itemH) {
+                    switchProject(projectList.get(i));
+                    showProjectList = false;
+                    return true;
+                }
             }
-            if (line.startsWith("when") && !line.endsWith(":")) {
-                errors.add("Line " + (i + 1) + ": 'when' must end with ':'");
-            }
+            showProjectList = false;
+            return true;
         }
+
+        return super.mouseClicked(mx, my, button);
     }
 
-    private void updateAutocomplete() {
-        String currentLine = lines.get(cursorLine);
-        autocompleteSuggestions = AutocompleteEngine.getSuggestions(currentLine, cursorColumn);
-        contextHint = AutocompleteEngine.getContextHint(currentLine);
-        showAutocomplete = !autocompleteSuggestions.isEmpty();
-        selectedSuggestion = 0;
+    private List<String> undoStack = new ArrayList<>();
+    private List<String> redoStack = new ArrayList<>();
+
+    private void saveUndo() {
+        undoStack.add(String.join("\n", lines));
+        if (undoStack.size() > 50) undoStack.remove(0);
+        redoStack.clear();
     }
 
-    private void performSearch() {
-        searchResults.clear();
-        if (searchText.isEmpty()) return;
-        for (int i = 0; i < lines.size(); i++) {
-            String line = lines.get(i).toLowerCase();
-            String search = searchText.toLowerCase();
-            int idx = 0;
-            while ((idx = line.indexOf(search, idx)) != -1) {
-                searchResults.add(new int[]{i, idx});
-                idx++;
-            }
-        }
-        if (!searchResults.isEmpty()) {
-            currentSearchResult = 0;
-            jumpToSearchResult();
-        }
+    private void undo() {
+        if (undoStack.isEmpty()) return;
+        redoStack.add(String.join("\n", lines));
+        String prev = undoStack.remove(undoStack.size() - 1);
+        lines.clear();
+        for (String l : prev.split("\n")) lines.add(l);
+        cursorLine = Math.min(cursorLine, lines.size() - 1);
+        validateScript();
+        showStatus("Undone");
     }
 
-    private void jumpToSearchResult() {
-        if (searchResults.isEmpty()) return;
-        int[] result = searchResults.get(currentSearchResult);
-        cursorLine = result[0];
-        cursorColumn = result[1];
-        ensureCursorVisible();
+    private void redo() {
+        if (redoStack.isEmpty()) return;
+        undoStack.add(String.join("\n", lines));
+        String next = redoStack.remove(redoStack.size() - 1);
+        lines.clear();
+        for (String l : next.split("\n")) lines.add(l);
+        cursorLine = Math.min(cursorLine, lines.size() - 1);
+        validateScript();
+        showStatus("Redone");
     }
 
-    private void saveScript() {
+    private void switchProject(String newProject) {
+        saveCurrentScript();
+        projectName = newProject;
+        loadProjectScript();
+        showStatus("Switched to: " + projectName);
+    }
+
+    private void saveCurrentScript() {
         String script = String.join("\n", lines);
         net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
         if (mc.player != null) {
             mc.player.connection.sendCommand("modcreator save " + projectName + " " + escapeForCommand(script));
         }
-        showStatus("Script saved!");
+    }
+
+    private void saveScript() {
+        saveCurrentScript();
+        showStatus("Saved: " + projectName);
     }
 
     private void runScript() {
-        if (!errors.isEmpty()) {
-            showStatus("Fix errors first!");
-            return;
-        }
         String script = String.join("\n", lines);
         net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
         if (mc.player != null) {
@@ -416,59 +432,11 @@ public class CodeEditorScreen extends Screen {
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        int btnY = TITLE_BAR_HEIGHT + BTN_Y_OFFSET;
-
-        if (mouseX >= BTN_SAVE_X && mouseX <= BTN_SAVE_X + BTN_SAVE_W
-                && mouseY >= btnY && mouseY <= btnY + BTN_HEIGHT) {
-            saveScript();
-            return true;
-        }
-        if (mouseX >= BTN_RUN_X && mouseX <= BTN_RUN_X + BTN_RUN_W
-                && mouseY >= btnY && mouseY <= btnY + BTN_HEIGHT) {
-            runScript();
-            return true;
-        }
-
-        return super.mouseClicked(mouseX, mouseY, button);
-    }
-
-    @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (keyCode == 344) { runScript(); return true; }
         if (keyCode == 83 && hasControlDown()) { saveScript(); return true; }
-        if (keyCode == 70 && hasControlDown()) {
-            showSearch = !showSearch;
-            if (showSearch) { searchText = ""; searchCursorPos = 0; }
-            return true;
-        }
-        if (keyCode == 32 && hasControlDown()) { updateAutocomplete(); return true; }
-
-        if (showAutocomplete && keyCode == 257) {
-            if (!autocompleteSuggestions.isEmpty()) insertAutocomplete(autocompleteSuggestions.get(selectedSuggestion));
-            showAutocomplete = false;
-            return true;
-        }
-        if (showAutocomplete) {
-            if (keyCode == 265) { selectedSuggestion = Math.max(0, selectedSuggestion - 1); return true; }
-            if (keyCode == 264) { selectedSuggestion = Math.min(autocompleteSuggestions.size() - 1, selectedSuggestion + 1); return true; }
-            if (keyCode == 256) { showAutocomplete = false; return true; }
-        }
-
-        if (showSearch) {
-            if (keyCode == 256) { showSearch = false; return true; }
-            if (keyCode == 257 && !searchResults.isEmpty()) {
-                currentSearchResult = (currentSearchResult + 1) % searchResults.size();
-                jumpToSearchResult();
-                return true;
-            }
-            if (keyCode == 259 && searchCursorPos > 0) {
-                searchText = searchText.substring(0, searchCursorPos - 1) + searchText.substring(searchCursorPos);
-                searchCursorPos--;
-                performSearch();
-                return true;
-            }
-        }
+        if (keyCode == 90 && hasControlDown()) { undo(); return true; }
+        if (keyCode == 89 && hasControlDown()) { redo(); return true; }
 
         if (keyCode == 265) { if (cursorLine > 0) cursorLine--; cursorColumn = Math.min(cursorColumn, lines.get(cursorLine).length()); ensureCursorVisible(); validateScript(); return true; }
         if (keyCode == 264) { if (cursorLine < lines.size() - 1) cursorLine++; cursorColumn = Math.min(cursorColumn, lines.get(cursorLine).length()); ensureCursorVisible(); validateScript(); return true; }
@@ -478,6 +446,7 @@ public class CodeEditorScreen extends Screen {
         if (keyCode == 336 || keyCode == 332) { cursorColumn = lines.get(cursorLine).length(); return true; }
 
         if (keyCode == 257) {
+            saveUndo();
             String before = lines.get(cursorLine).substring(0, cursorColumn);
             String after = lines.get(cursorLine).substring(cursorColumn);
             int indent = 0;
@@ -492,6 +461,7 @@ public class CodeEditorScreen extends Screen {
         }
 
         if (keyCode == 259) {
+            saveUndo();
             if (cursorColumn > 0) {
                 String line = lines.get(cursorLine);
                 lines.set(cursorLine, line.substring(0, cursorColumn - 1) + line.substring(cursorColumn));
@@ -507,6 +477,7 @@ public class CodeEditorScreen extends Screen {
         }
 
         if (keyCode == 261) {
+            saveUndo();
             String line = lines.get(cursorLine);
             if (cursorColumn < line.length()) {
                 lines.set(cursorLine, line.substring(0, cursorColumn) + line.substring(cursorColumn + 1));
@@ -518,41 +489,20 @@ public class CodeEditorScreen extends Screen {
             return true;
         }
 
-        if (keyCode == 258) {
-            String line = lines.get(cursorLine);
-            lines.set(cursorLine, line.substring(0, cursorColumn) + "    " + line.substring(cursorColumn));
-            cursorColumn += 4;
-            return true;
-        }
-
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override
     public boolean charTyped(char codePoint, int modifiers) {
-        if (showSearch) {
-            if (codePoint >= 32 && codePoint < 127) {
-                searchText = searchText.substring(0, searchCursorPos) + codePoint + searchText.substring(searchCursorPos);
-                searchCursorPos++;
-                performSearch();
-                return true;
-            }
-        } else if (codePoint >= 32 && codePoint < 127) {
+        if (codePoint >= 32 && codePoint < 127) {
+            saveUndo();
             String line = lines.get(cursorLine);
             lines.set(cursorLine, line.substring(0, cursorColumn) + codePoint + line.substring(cursorColumn));
             cursorColumn++;
-            showAutocomplete = false;
             validateScript();
             return true;
         }
         return super.charTyped(codePoint, modifiers);
-    }
-
-    private void insertAutocomplete(String suggestion) {
-        String line = lines.get(cursorLine);
-        lines.set(cursorLine, line.substring(0, cursorColumn) + suggestion + line.substring(cursorColumn));
-        cursorColumn += suggestion.length();
-        validateScript();
     }
 
     @Override
