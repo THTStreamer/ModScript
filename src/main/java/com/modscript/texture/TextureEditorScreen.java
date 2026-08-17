@@ -8,7 +8,7 @@ import java.util.*;
 
 public class TextureEditorScreen extends Screen {
     private static final int CANVAS_SIZE = 16;
-    private static final int PIXEL_SIZE = 14;
+    private static final int PIXEL_SIZE = 16;
     private static final int PALETTE_SIZE = 10;
     private static final int TOOLBAR_HEIGHT = 28;
     private static final int SIDEBAR_WIDTH = 140;
@@ -18,21 +18,18 @@ public class TextureEditorScreen extends Screen {
     private int currentColor = 0xFF000000;
     private int currentTool = 0;
     private boolean showGrid = true;
-    private int zoom = 1;
-    private int panX = 0, panY = 0;
     private boolean dragging = false;
     private int lastMouseX, lastMouseY;
     private List<int[]> undoStack = new ArrayList<>();
     private List<int[]> redoStack = new ArrayList<>();
-    private int paletteScroll = 0;
     private int selectedBase = -1;
-    private List<String> baseNames = new ArrayList<>();
     private boolean showBaseList = false;
+    private List<String> baseNames = new ArrayList<>();
     private String statusMessage = "";
     private long statusTime = 0;
+    private int canvasLeft, canvasTop;
 
     private static final String[] TOOLS = {"Pencil", "Eraser", "Fill", "Picker", "Line", "Rect", "Clear"};
-    private static final int[] TOOL_COLORS = {0xFF333333, 0xFF666666, 0xFF2E7D32, 0xFF1565C0, 0xFF6A1B9A, 0xFFBF360C, 0xFF880000};
 
     public TextureEditorScreen(String name) {
         super(Component.literal("Texture Editor - " + name));
@@ -44,20 +41,17 @@ public class TextureEditorScreen extends Screen {
     protected void init() {
         if (texture == null) {
             texture = TextureManager.getTexture(textureName);
-            if (texture == null) {
-                texture = TextureManager.createTexture(textureName);
-            }
+            if (texture == null) texture = TextureManager.createTexture(textureName);
         }
+        canvasLeft = 8;
+        canvasTop = TOOLBAR_HEIGHT + 8;
     }
 
     @Override
     public void render(GuiGraphics gui, int mx, int my, float pt) {
-        renderBackground(gui, mx, my, pt);
-        int canvasX = 8;
-        int canvasY = TOOLBAR_HEIGHT + 8;
-
+        gui.fill(0, 0, this.width, this.height, 0xFF1A1A2E);
         renderToolbar(gui, mx, my);
-        renderCanvas(gui, canvasX, canvasY, mx, my);
+        renderCanvas(gui, mx, my);
         renderSidebar(gui, mx, my);
 
         if (!statusMessage.isEmpty() && System.currentTimeMillis() - statusTime < 2000) {
@@ -69,7 +63,7 @@ public class TextureEditorScreen extends Screen {
     }
 
     private void renderToolbar(GuiGraphics gui, int mx, int my) {
-        gui.fill(0, 0, this.width, TOOLBAR_HEIGHT, 0xFF1A1A2E);
+        gui.fill(0, 0, this.width, TOOLBAR_HEIGHT, 0xFF252535);
         gui.fill(0, TOOLBAR_HEIGHT - 1, this.width, TOOLBAR_HEIGHT, 0xFF444444);
 
         int x = 8;
@@ -78,9 +72,8 @@ public class TextureEditorScreen extends Screen {
             boolean hover = mx >= x && mx <= x + w && my >= 4 && my <= 22;
             boolean selected = i == currentTool;
             int bg = selected ? 0xFF4A6FA5 : (hover ? 0xFF3A3A4A : 0xFF2A2A3A);
-            int border = selected ? 0xFF6699CC : 0xFF555555;
             gui.fill(x, 4, x + w, 22, bg);
-            gui.renderOutline(x, 4, w, 18, border);
+            gui.renderOutline(x, 4, w, 18, selected ? 0xFF6699CC : 0xFF555555);
             gui.drawString(font, TOOLS[i], x + 6, 9, 0xFFDDDDDD);
             x += w + 4;
         }
@@ -127,25 +120,27 @@ public class TextureEditorScreen extends Screen {
         gui.drawString(font, "Close", x + 6, 9, 0xFFDD6666);
     }
 
-    private void renderCanvas(GuiGraphics gui, int cx, int cy, int mx, int my) {
+    private void renderCanvas(GuiGraphics gui, int mx, int my) {
         int totalSize = CANVAS_SIZE * PIXEL_SIZE;
-        gui.fill(cx - 1, cy - 1, cx + totalSize + 1, cy + totalSize + 1, 0xFF333333);
-        gui.fill(cx, cy, cx + totalSize, cy + totalSize, 0xFF1A1A1A);
+
+        gui.fill(canvasLeft - 2, canvasTop - 2, canvasLeft + totalSize + 2, canvasTop + totalSize + 2, 0xFF444444);
+        gui.fill(canvasLeft - 1, canvasTop - 1, canvasLeft + totalSize + 1, canvasTop + totalSize + 1, 0xFF1A1A1A);
 
         for (int y = 0; y < CANVAS_SIZE; y++) {
             for (int x = 0; x < CANVAS_SIZE; x++) {
-                int px = cx + x * PIXEL_SIZE;
-                int py = cy + y * PIXEL_SIZE;
+                int px = canvasLeft + x * PIXEL_SIZE;
+                int py = canvasTop + y * PIXEL_SIZE;
                 int color = texture.getPixel(x, y);
 
                 if (color != 0) {
+                    int a = (color >> 24) & 0xFF;
                     int r = (color >> 16) & 0xFF;
                     int g = (color >> 8) & 0xFF;
                     int b = color & 0xFF;
-                    int a = (color >> 24) & 0xFF;
                     if (a == 0) a = 255;
-                    int display = (a << 24) | (r << 16) | (g << 8) | b;
-                    gui.fill(px, py, px + PIXEL_SIZE - 1, py + PIXEL_SIZE - 1, display);
+                    gui.fill(px, py, px + PIXEL_SIZE - 1, py + PIXEL_SIZE - 1, (a << 24) | (r << 16) | (g << 8) | b);
+                } else {
+                    checkerPixel(gui, px, py);
                 }
 
                 boolean hover = mx >= px && mx < px + PIXEL_SIZE && my >= py && my < py + PIXEL_SIZE;
@@ -154,9 +149,18 @@ public class TextureEditorScreen extends Screen {
                 }
 
                 if (showGrid) {
-                    gui.fill(px + PIXEL_SIZE - 1, py, px + PIXEL_SIZE, py + PIXEL_SIZE, 0xFF2A2A2A);
-                    gui.fill(px, py + PIXEL_SIZE - 1, px + PIXEL_SIZE, py + PIXEL_SIZE, 0xFF2A2A2A);
+                    gui.fill(px + PIXEL_SIZE - 1, py, px + PIXEL_SIZE, py + PIXEL_SIZE, 0xFF333333);
+                    gui.fill(px, py + PIXEL_SIZE - 1, px + PIXEL_SIZE, py + PIXEL_SIZE, 0xFF333333);
                 }
+            }
+        }
+    }
+
+    private void checkerPixel(GuiGraphics gui, int px, int py) {
+        for (int cy = 0; cy < PIXEL_SIZE - 1; cy++) {
+            for (int cx = 0; cx < PIXEL_SIZE - 1; cx++) {
+                int c = ((cx / 4) + (cy / 4)) % 2 == 0 ? 0xFFCCCCCC : 0xFFAAAAAA;
+                gui.fill(px + cx, py + cy, px + cx + 1, py + cy + 1, c);
             }
         }
     }
@@ -169,7 +173,7 @@ public class TextureEditorScreen extends Screen {
         int y = TOOLBAR_HEIGHT + 8;
         gui.drawString(font, "Color:", sx + 8, y, 0xFFAAAAAA);
         y += 12;
-        gui.fill(sx + 8, y, sx + 8 + 40, y + 20, currentColor);
+        gui.fill(sx + 8, y, sx + 48, y + 20, currentColor);
         gui.renderOutline(sx + 8, y, 40, 20, 0xFFCCCCCC);
         y += 28;
 
@@ -180,23 +184,26 @@ public class TextureEditorScreen extends Screen {
         for (var entry : TextureManager.getPalette().entrySet()) {
             int pColor = 0xFF000000 | (entry.getValue()[0] << 16) | (entry.getValue()[1] << 8) | entry.getValue()[2];
             int px = sx + 8 + col * (PALETTE_SIZE + 2);
+            if (px + PALETTE_SIZE > sx + SIDEBAR_WIDTH - 8) {
+                col = 0;
+                palY += PALETTE_SIZE + 2;
+                px = sx + 8;
+            }
             boolean hover = mx >= px && mx <= px + PALETTE_SIZE && my >= palY && my <= palY + PALETTE_SIZE;
             gui.fill(px, palY, px + PALETTE_SIZE, palY + PALETTE_SIZE, pColor);
             if (hover) {
                 gui.renderOutline(px, palY, PALETTE_SIZE + 1, PALETTE_SIZE + 1, 0xFFFFFFFF);
-                currentColor = pColor;
             }
             col++;
-            if (col >= 10) { col = 0; palY += PALETTE_SIZE + 2; }
         }
-        y = palY + PALETTE_SIZE + 12;
+        y = palY + PALETTE_SIZE + 16;
 
-        gui.drawString(font, "Base Texture:", sx + 8, y, 0xFFAAAAAA);
+        gui.drawString(font, "Base:", sx + 8, y, 0xFFAAAAAA);
         y += 12;
         gui.fill(sx + 8, y, sx + SIDEBAR_WIDTH - 8, y + 16, showBaseList ? 0xFF2A2A3A : 0xFF1A1A2A);
         gui.renderOutline(sx + 8, y, SIDEBAR_WIDTH - 16, 16, 0xFF555555);
-        String baseLabel = selectedBase >= 0 ? baseNames.get(selectedBase) : "None";
-        gui.drawString(font, baseLabel, sx + 12, y + 4, 0xFFCCCCCC);
+        String baseLabel = selectedBase >= 0 && selectedBase < baseNames.size() ? baseNames.get(selectedBase) : "Click to select";
+        gui.drawString(font, baseLabel.length() > 14 ? baseLabel.substring(0, 14) : baseLabel, sx + 12, y + 4, 0xFFCCCCCC);
         y += 20;
 
         if (showBaseList) {
@@ -213,15 +220,13 @@ public class TextureEditorScreen extends Screen {
         }
 
         y += 8;
-        gui.drawString(font, "Info:", sx + 8, y, 0xFFAAAAAA);
-        y += 12;
         gui.drawString(font, "16x16 pixels", sx + 8, y, 0xFF888888);
-        y += 12;
-        gui.drawString(font, "Tools: " + TOOLS[currentTool], sx + 8, y, 0xFF888888);
     }
 
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
+        if (button != 0) return super.mouseClicked(mx, my, button);
+
         int cx = 8;
         int cy = TOOLBAR_HEIGHT + 8;
         int totalSize = CANVAS_SIZE * PIXEL_SIZE;
@@ -235,7 +240,7 @@ public class TextureEditorScreen extends Screen {
                     case 0 -> texture.setPixel(px, py, currentColor);
                     case 1 -> texture.setPixel(px, py, 0x00000000);
                     case 2 -> texture.floodFill(px, py, currentColor);
-                    case 3 -> currentColor = texture.getPixel(px, py);
+                    case 3 -> { int c = texture.getPixel(px, py); if (c != 0) currentColor = c; }
                     case 4, 5 -> dragging = true;
                 }
                 lastMouseX = px;
@@ -244,23 +249,29 @@ public class TextureEditorScreen extends Screen {
             }
         }
 
-        handleToolbarClick(mx, my);
-        handleSidebarClick(mx, my);
+        if (my < TOOLBAR_HEIGHT) {
+            handleToolbarClick(mx, my);
+            return true;
+        }
+
+        if (mx >= this.width - SIDEBAR_WIDTH) {
+            handleSidebarClick(mx, my);
+            return true;
+        }
+
         return super.mouseClicked(mx, my, button);
     }
 
     @Override
     public boolean mouseReleased(double mx, double my, int button) {
-        if (dragging && currentTool == 4) {
+        if (dragging && button == 0) {
             int cx = 8, cy = TOOLBAR_HEIGHT + 8;
             int px = (int) ((mx - cx) / PIXEL_SIZE);
             int py = (int) ((my - cy) / PIXEL_SIZE);
-            drawLine(lastMouseX, lastMouseY, px, py, currentColor);
-        } else if (dragging && currentTool == 5) {
-            int cx = 8, cy = TOOLBAR_HEIGHT + 8;
-            int px = (int) ((mx - cx) / PIXEL_SIZE);
-            int py = (int) ((my - cy) / PIXEL_SIZE);
-            drawRect(lastMouseX, lastMouseY, px, py, currentColor);
+            px = Math.max(0, Math.min(CANVAS_SIZE - 1, px));
+            py = Math.max(0, Math.min(CANVAS_SIZE - 1, py));
+            if (currentTool == 4) drawLine(lastMouseX, lastMouseY, px, py, currentColor);
+            else if (currentTool == 5) drawRect(lastMouseX, lastMouseY, px, py, currentColor);
         }
         dragging = false;
         return super.mouseReleased(mx, my, button);
@@ -268,31 +279,24 @@ public class TextureEditorScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mx, double my, int button, double dx, double dy) {
-        if (currentTool == 0 || currentTool == 1) {
+        if (button == 0 && (currentTool == 0 || currentTool == 1)) {
             int cx = 8, cy = TOOLBAR_HEIGHT + 8;
             int px = (int) ((mx - cx) / PIXEL_SIZE);
             int py = (int) ((my - cy) / PIXEL_SIZE);
             if (px >= 0 && px < CANVAS_SIZE && py >= 0 && py < CANVAS_SIZE) {
-                int color = currentTool == 0 ? currentColor : 0x00000000;
-                texture.setPixel(px, py, color);
+                texture.setPixel(px, py, currentTool == 0 ? currentColor : 0x00000000);
             }
         }
         return super.mouseDragged(mx, my, button, dx, dy);
     }
 
     private void handleToolbarClick(double mx, double my) {
-        if (my < 0 || my > TOOLBAR_HEIGHT) return;
         int x = 8;
         for (int i = 0; i < TOOLS.length; i++) {
             int w = font.width(TOOLS[i]) + 12;
             if (mx >= x && mx <= x + w) {
-                if (i == 6) {
-                    saveUndo();
-                    texture.clear();
-                    showStatus("Canvas cleared");
-                } else {
-                    currentTool = i;
-                }
+                if (i == 6) { saveUndo(); texture.clear(); showStatus("Canvas cleared"); }
+                else currentTool = i;
                 return;
             }
             x += w + 4;
@@ -316,19 +320,40 @@ public class TextureEditorScreen extends Screen {
 
     private void handleSidebarClick(double mx, double my) {
         int sx = this.width - SIDEBAR_WIDTH;
-        if (mx < sx) return;
         int y = TOOLBAR_HEIGHT + 8 + 12 + 28 + 12;
         int palY = y;
         int col = 0;
         for (var entry : TextureManager.getPalette().entrySet()) {
             int pColor = 0xFF000000 | (entry.getValue()[0] << 16) | (entry.getValue()[1] << 8) | entry.getValue()[2];
             int px = sx + 8 + col * (PALETTE_SIZE + 2);
+            if (px + PALETTE_SIZE > sx + SIDEBAR_WIDTH - 8) {
+                col = 0;
+                palY += PALETTE_SIZE + 2;
+                px = sx + 8;
+            }
             if (mx >= px && mx <= px + PALETTE_SIZE && my >= palY && my <= palY + PALETTE_SIZE) {
                 currentColor = pColor;
                 return;
             }
             col++;
-            if (col >= 10) { col = 0; palY += PALETTE_SIZE + 2; }
+        }
+
+        palY += PALETTE_SIZE + 16 + 12 + 20;
+        if (mx >= sx + 8 && mx <= sx + SIDEBAR_WIDTH - 8 && my >= palY - 16 && my <= palY) {
+            showBaseList = !showBaseList;
+            return;
+        }
+
+        if (showBaseList) {
+            int listY = palY + 4;
+            for (int i = 0; i < Math.min(baseNames.size(), 8); i++) {
+                int itemY = listY + i * 12;
+                if (mx >= sx + 8 && mx <= sx + SIDEBAR_WIDTH - 8 && my >= itemY && my <= itemY + 12) {
+                    selectedBase = i;
+                    showBaseList = false;
+                    return;
+                }
+            }
         }
     }
 
@@ -337,7 +362,8 @@ public class TextureEditorScreen extends Screen {
         int dy = -Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
         int err = dx + dy;
         while (true) {
-            texture.setPixel(x0, y0, color);
+            if (x0 >= 0 && x0 < CANVAS_SIZE && y0 >= 0 && y0 < CANVAS_SIZE)
+                texture.setPixel(x0, y0, color);
             if (x0 == x1 && y0 == y1) break;
             int e2 = 2 * err;
             if (e2 >= dy) { err += dy; x0 += sx; }
@@ -349,12 +375,16 @@ public class TextureEditorScreen extends Screen {
         int minX = Math.min(x0, x1), maxX = Math.max(x0, x1);
         int minY = Math.min(y0, y1), maxY = Math.max(y0, y1);
         for (int x = minX; x <= maxX; x++) {
-            texture.setPixel(x, minY, color);
-            texture.setPixel(x, maxY, color);
+            if (x >= 0 && x < CANVAS_SIZE) {
+                if (minY >= 0 && minY < CANVAS_SIZE) texture.setPixel(x, minY, color);
+                if (maxY >= 0 && maxY < CANVAS_SIZE) texture.setPixel(x, maxY, color);
+            }
         }
         for (int y = minY; y <= maxY; y++) {
-            texture.setPixel(minX, y, color);
-            texture.setPixel(maxX, y, color);
+            if (y >= 0 && y < CANVAS_SIZE) {
+                if (minX >= 0 && minX < CANVAS_SIZE) texture.setPixel(minX, y, color);
+                if (maxX >= 0 && maxX < CANVAS_SIZE) texture.setPixel(maxX, y, color);
+            }
         }
     }
 
@@ -382,7 +412,7 @@ public class TextureEditorScreen extends Screen {
 
     private void save() {
         TextureManager.saveTexture(texture);
-        showStatus("Texture saved: " + textureName);
+        showStatus("Saved: " + textureName);
     }
 
     private void showStatus(String msg) {
@@ -395,9 +425,7 @@ public class TextureEditorScreen extends Screen {
 
     @Override
     public void onClose() {
-        if (texture.isModified()) {
-            TextureManager.saveTexture(texture);
-        }
+        if (texture.isModified()) TextureManager.saveTexture(texture);
         super.onClose();
     }
 }
