@@ -142,15 +142,23 @@ public class ModScriptParser {
             ModScriptLexer.Token t = advance();
             return new ASTNode.BooleanLiteral(false, t.line(), t.column());
         }
-        // For recipe ingredients like "3x item_name"
-        if (peek().type().equals(ModScriptLexer.TokenType.WORD) || peek().type().equals(ModScriptLexer.TokenType.HEALTH)
-                || peek().type().equals(ModScriptLexer.TokenType.ATTACK) || peek().type().equals(ModScriptLexer.TokenType.SPEED)
-                || peek().type().equals(ModScriptLexer.TokenType.DAMAGE) || peek().type().equals(ModScriptLexer.TokenType.FIRE)) {
+        StringBuilder sb = new StringBuilder();
+        int line = peek().line(), col = peek().column();
+        while (!isAtEnd() && !peek().type().equals(ModScriptLexer.TokenType.COLON)
+                && !peek().type().equals(ModScriptLexer.TokenType.NEWLINE)
+                && !peek().type().equals(ModScriptLexer.TokenType.EOF)
+                && !peek().type().equals(ModScriptLexer.TokenType.COMMA)) {
+            ModScriptLexer.Token t = advance();
+            if (sb.length() > 0) sb.append(" ");
+            sb.append(t.value());
+        }
+        if (sb.length() == 0) {
             ModScriptLexer.Token t = advance();
             return new ASTNode.StringLiteral(t.value(), t.line(), t.column());
         }
-        ModScriptLexer.Token t = advance();
-        return new ASTNode.StringLiteral(t.value(), t.line(), t.column());
+        String val = sb.toString();
+        try { return new ASTNode.NumberLiteral(Double.parseDouble(val), line, col); }
+        catch (NumberFormatException e) { return new ASTNode.StringLiteral(val, line, col); }
     }
 
     private ASTNode parseWhen() throws ScriptException {
@@ -276,9 +284,21 @@ public class ModScriptParser {
     }
 
     private String consumeString() throws ScriptException {
-        ModScriptLexer.Token t = advance();
-        if (!t.type().equals(ModScriptLexer.TokenType.STRING)) throw error("Expected string", t);
-        return t.value();
+        ModScriptLexer.Token t = peek();
+        if (t.type().equals(ModScriptLexer.TokenType.STRING)) {
+            advance();
+            return t.value();
+        }
+        StringBuilder sb = new StringBuilder();
+        while (!isAtEnd() && !peek().type().equals(ModScriptLexer.TokenType.COLON)
+                && !peek().type().equals(ModScriptLexer.TokenType.NEWLINE)
+                && !peek().type().equals(ModScriptLexer.TokenType.EOF)) {
+            ModScriptLexer.Token word = advance();
+            if (sb.length() > 0 && !word.value().equals(":")) sb.append(" ");
+            sb.append(word.value());
+        }
+        if (sb.length() == 0) throw error("Expected string or name", t);
+        return sb.toString();
     }
 
     private void skipNewlines() { while (!isAtEnd() && peek().type().equals(ModScriptLexer.TokenType.NEWLINE)) advance(); }
